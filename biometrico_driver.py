@@ -3,106 +3,107 @@ from requests.auth import HTTPDigestAuth
 import json
 import sqlite3
 import time
-import threading
 from datetime import datetime
 
 # --- CONFIGURACIÓN ---
-IP = '192.168.100.22'
+IP = '192.168.1.22'
 USER = 'admin'
 PASS = 'istae1804A'
-DB_NAME = "logs.db"
+DB_NAME = "sistema_tesis.db" # Nuevo nombre para evitar conflictos
 URL_STREAM = f'http://{IP}/ISAPI/Event/notification/alertStream'
 
 # --- BASE DE DATOS ---
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     conn.row_factory = sqlite3.Row 
     return conn
 
 def init_db():
     conn = get_db_connection()
+    
+    # 1. Tabla de Usuarios (Docentes y Admins)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            biometric_id TEXT UNIQUE,  -- ID en el aparato (ej: "1")
+            nombre TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL, -- Para hacer login
+            password TEXT NOT NULL,
+            rol TEXT DEFAULT 'docente' -- 'admin' o 'docente'
+        )
+    ''')
+
+    # 2. Tabla de Logs (Asistencias y Puertas)
     conn.execute('''
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT,
+            fecha DATETIME,
             usuario_id TEXT,
             tipo_evento TEXT,
             origen TEXT
         )
     ''')
-    conn.commit()
+
+    # CREAR USUARIO ADMIN POR DEFECTO (Si no existe)
+    # Usuario: admin | Clave: 1234
+    try:
+        conn.execute("INSERT INTO usuarios (biometric_id, nombre, username, password, rol) VALUES (?, ?, ?, ?, ?)", 
+                     ('999', 'Administrador Principal', 'admin', '1234', 'admin'))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass # Ya existe
+    
     conn.close()
 
+# --- FUNCIONES DE LOGICA ---
 def guardar_log(fecha, uid, evento, origen):
     try:
-        if fecha == "Ahora":
-            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+        if fecha == "Ahora": fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
-        conn.execute("INSERT INTO logs (fecha, usuario_id, tipo_evento, origen) VALUES (?, ?, ?, ?)",
-                     (fecha, uid, evento, origen))
+        conn.execute("INSERT INTO logs (fecha, usuario_id, tipo_evento, origen) VALUES (?, ?, ?, ?)", (fecha, uid, evento, origen))
         conn.commit()
         conn.close()
-        print(f"✅ REGISTRADO EN BD: {uid} | {evento}")
+        print(f"✅ LOG: {uid} | {evento}")
     except Exception as e:
-        print(f"⚠️ Error escribiendo en BD: {e}")
+        print(f"Error Log: {e}")
 
-# --- CONTROL PUERTA ---
-def abrir_puerta_remota():
+def abrir_puerta_remota(solicitante):
     url = f'http://{IP}/ISAPI/AccessControl/RemoteControl/door/1'
     xml_cmd = "<RemoteControlDoor xmlns='http://www.isapi.org/ver20/XMLSchema' version='2.0'><cmd>open</cmd></RemoteControlDoor>"
     headers = {'Content-Type': 'application/xml'}
     try:
         r = requests.put(url, auth=HTTPDigestAuth(USER, PASS), data=xml_cmd, headers=headers, timeout=5)
         if r.status_code == 200:
-            guardar_log("Ahora", "WEB-ADMIN", "APERTURA REMOTA", "App Web")
+            guardar_log("Ahora", solicitante, "APERTURA REMOTA", "Panel Web")
             return True, "Puerta Abierta"
-        return False, f"Error: {r.status_code}"
+        return False, f"Error Biométrico: {r.status_code}"
     except Exception as e:
-        return False, f"Error conexión: {e}"
+        return False, f"Error Conexión: {e}"
 
-# --- MONITOR (CORREGIDO CON CONTADOR DE LLAVES) ---
+# --- MONITOR EN SEGUNDO PLANO ---
 def iniciar_escucha_background():
-    print(f"📡 CONECTANDO AL BIOMÉTRICO ({IP})...")
-    
+    print(f"📡 MONITOR INICIADO ({IP})...")
     while True:
         try:
             with requests.get(URL_STREAM, auth=HTTPDigestAuth(USER, PASS), stream=True, timeout=90) as r:
                 if r.status_code == 200:
-                    print("🔵 Conexión establecida. Esperando huellas...")
-                    
-                    buffer = ""
-                    llaves_abiertas = 0
-                    capturando = False
-                    
-                    # Leemos caracter por caracter para no perder nada
+                    buffer = ""; llaves = 0; capturando = False
                     for chunk in r.iter_content(chunk_size=1):
                         if chunk:
                             char = chunk.decode('utf-8', errors='ignore')
-                            
-                            # Detectar inicio de JSON
                             if char == '{':
-                                if not capturando:
-                                    capturando = True
-                                    buffer = ""
-                                llaves_abiertas += 1
-                            
+                                if not capturando: capturando = True; buffer = ""
+                                llaves += 1
                             if capturando:
                                 buffer += char
-                                
                                 if char == '}':
-                                    llaves_abiertas -= 1
-                                    
-                                    # Si las llaves llegan a cero, tenemos un JSON completo
-                                    if llaves_abiertas == 0:
+                                    llaves -= 1
+                                    if llaves == 0:
                                         procesar_json(buffer)
-                                        capturando = False
-                                        buffer = ""
+                                        capturando = False; buffer = ""
                 else:
-                    print(f"⚠️ Error HTTP {r.status_code}. Reintentando...")
                     time.sleep(5)
-        except Exception as e:
-            print(f"❌ Conexión caída: {e}. Reconectando en 5s...")
+        except:
             time.sleep(5)
 
 def procesar_json(json_raw):
@@ -111,27 +112,16 @@ def procesar_json(json_raw):
         evt = data.get('AccessControllerEvent', {})
         sub = evt.get('subEventType', 0)
         
-        # Ignoramos latidos (0) y alarmas irrelevantes
         if sub != 0:
-            # Extraer datos
             uid = evt.get('employeeNoString', 'Desconocido')
-            fecha_raw = data.get('dateTime', '')
-            fecha = fecha_raw.split('+')[0].replace('T', ' ')
+            fecha = data.get('dateTime', '').split('+')[0].replace('T', ' ')
             
-            # --- DEBUG EN CONSOLA (Para que veas si llega) ---
-            print(f"📩 Recibido Evento Tipo {sub} - Usuario: {uid}")
-
-            msg = None
-            origen = "Biométrico"
-
-            if sub == 38: msg, origen = "ASISTENCIA CORRECTA", "Huella"
-            elif sub == 75: msg, origen = "VERIFICADO", "Huella"
+            msg = None; origen = "Biométrico"
+            if sub == 38: msg, origen = "ASISTENCIA", "Huella"
+            elif sub == 75: msg, origen = "VERIFICACIÓN OK", "Huella"
             elif sub == 1: msg, origen = "BOTON SALIDA", "Físico"
-            elif sub == 39: msg, origen = "FALLO AUTENTICACIÓN", "Huella"
+            elif sub == 39: msg, origen = "FALLO LOGIN", "Huella"
 
-            if msg:
-                guardar_log(fecha, uid, msg, origen)
-
-    except Exception as e:
-        # Si el JSON es basura, lo ignoramos
+            if msg: guardar_log(fecha, uid, msg, origen)
+    except:
         pass

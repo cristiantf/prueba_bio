@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow">
+            <div class="card-header"><h4>✏️ Editar Docente</h4></div>
+            <div class="card-body">
+                <form action="{{ url_for('actualizar_docente') }}" method="POST">
+                    <input type="hidden" name="docente_id" value="{{ docente.id }}">
+                    <div class="mb-3">
+                        <label>Nombre Completo</label>
+                        <input type="text" name="nombre" class="form-control" value="{{ docente.nombre }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>ID Biométrico</label>
+                        <input type="number" name="bio_id" class="form-control" value="{{ docente.biometric_id }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Usuario (Login)</label>
+                        <input type="text" name="username" class="form-control" value="{{ docente.username }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Contraseña</label>
+                        <input type="password" name="password" class="form-control" placeholder="Dejar en blanco para no cambiar">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Guardar Cambios</button>
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary w-100 mt-2">Cancelar</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
