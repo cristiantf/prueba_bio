@@ -30,7 +30,7 @@
             color: #fff;
         }
         .main-content {
-            padding-top: 70px; /* Ajuste para la navbar */
+            padding-top: 70px; /* Restaurado a 70px */
             margin-left: 250px;
             transition: margin-left .3s;
         }
@@ -38,30 +38,28 @@
             z-index: 1000;
         }
         #sidebar-toggler {
-            display: none; /* Oculto en pantallas grandes */
+            display: none;
         }
         @media (max-width: 768px) {
             .sidebar {
-                left: -250px; /* Oculto por defecto */
+                left: -250px;
             }
             .sidebar.active {
-                left: 0; /* Visible cuando está activo */
+                left: 0;
             }
             .main-content {
                 margin-left: 0;
             }
             #sidebar-toggler {
-                display: block; /* Visible en pantallas pequeñas */
+                display: block;
             }
         }
     </style>
 </head>
 <body>
     <div class="d-flex" id="wrapper">
-        <!-- Sidebar -->
         {% block sidebar %}{% endblock %}
 
-        <!-- Page Content -->
         <div id="page-content-wrapper" class="w-100">
             <nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom fixed-top">
                 <div class="container-fluid">
