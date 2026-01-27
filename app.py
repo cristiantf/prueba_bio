@@ -51,8 +51,9 @@ def load_user(user_id):
     u = conn.execute("SELECT * FROM usuarios WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if u:
+        acceso = u['acceso_puerta'] if 'acceso_puerta' in u.keys() else 0
         return User(id=u['id'], username=u['username'], rol=u['rol'], 
-                    nombre=u['nombre'], bio_id=u['biometric_id'], acceso_puerta=u['acceso_puerta'])
+                    nombre=u['nombre'], bio_id=u['biometric_id'], acceso_puerta=acceso)
     return None
 
 # --- INICIALIZACIÓN ---
@@ -75,8 +76,9 @@ def login():
         
         # Ahora se verifica el hash de la contraseña, no el texto plano
         if usuario_db and check_password_hash(usuario_db['password'], password):
+            acceso = usuario_db['acceso_puerta'] if 'acceso_puerta' in usuario_db.keys() else 0
             user_obj = User(id=usuario_db['id'], username=usuario_db['username'], rol=usuario_db['rol'], 
-                            nombre=usuario_db['nombre'], bio_id=usuario_db['biometric_id'], acceso_puerta=usuario_db['acceso_puerta'])
+                            nombre=usuario_db['nombre'], bio_id=usuario_db['biometric_id'], acceso_puerta=acceso)
             login_user(user_obj)
             
             # Redirige al dashboard correspondiente
@@ -104,21 +106,21 @@ def admin_dashboard():
         return redirect(url_for('docente_dashboard'))
         
     conn = bio.get_db_connection()
-    docentes = conn.execute("SELECT * FROM usuarios WHERE rol='docente' ORDER BY nombre").fetchall()
+    docentes = [dict(row) for row in conn.execute("SELECT * FROM usuarios WHERE rol='docente' ORDER BY nombre").fetchall()]
     query_logs = '''
         SELECT l.fecha, l.usuario_id, u.nombre, l.tipo_evento, l.origen
         FROM logs l 
         LEFT JOIN usuarios u ON l.usuario_id = u.biometric_id 
         ORDER BY l.id DESC LIMIT 20
     '''
-    logs = conn.execute(query_logs).fetchall()
+    logs = [dict(row) for row in conn.execute(query_logs).fetchall()]
     conn.close()
     
     return render_template('admin.html', docentes=docentes, logs=logs)
 
-@app.route('/toggle_permiso/<int:docente_id>', methods=['POST'])
+@app.route('/toggle_permiso/<int:id>', methods=['POST'])
 @login_required
-def toggle_permiso(docente_id):
+def toggle_permiso(id):
     if current_user.rol != 'admin':
         return jsonify({'success': False, 'message': 'No autorizado'}), 403
     
@@ -127,7 +129,7 @@ def toggle_permiso(docente_id):
         nuevo_estado = 1 if data.get('estado') else 0
         
         conn = bio.get_db_connection()
-        conn.execute("UPDATE usuarios SET acceso_puerta = ? WHERE id = ?", (nuevo_estado, docente_id))
+        conn.execute("UPDATE usuarios SET acceso_puerta = ? WHERE id = ?", (nuevo_estado, id))
         conn.commit()
         conn.close()
         return jsonify({'success': True})
@@ -167,30 +169,30 @@ def crear_docente():
         
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/eliminar_docente/<int:docente_id>')
+@app.route('/eliminar_docente/<int:id>')
 @login_required
-def eliminar_docente(docente_id):
+def eliminar_docente(id):
     if current_user.rol != 'admin': return redirect(url_for('login'))
     
     conn = bio.get_db_connection()
-    conn.execute("DELETE FROM usuarios WHERE id = ?", (docente_id,))
+    conn.execute("DELETE FROM usuarios WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     
     flash('Docente eliminado correctamente.', 'success')
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/editar_docente/<int:docente_id>')
+@app.route('/editar_docente/<int:id>')
 @login_required
-def editar_docente(docente_id):
+def editar_docente(id):
     if current_user.rol != 'admin': return redirect(url_for('login'))
     
     conn = bio.get_db_connection()
-    docente = conn.execute("SELECT * FROM usuarios WHERE id = ?", (docente_id,)).fetchone()
+    docente = conn.execute("SELECT * FROM usuarios WHERE id = ?", (id,)).fetchone()
     conn.close()
     
     if docente:
-        return render_template('editar_docente.html', docente=docente)
+        return render_template('editar_docente.html', docente=dict(docente))
     
     flash('El docente no fue encontrado.', 'warning')
     return redirect(url_for('admin_dashboard'))
@@ -347,7 +349,7 @@ def descargar_reporte_matricial():
 @login_required
 def docente_dashboard():
     conn = bio.get_db_connection()
-    logs = conn.execute("SELECT * FROM logs WHERE usuario_id = ? ORDER BY id DESC LIMIT 10", (current_user.bio_id,)).fetchall()
+    logs = [dict(row) for row in conn.execute("SELECT * FROM logs WHERE usuario_id = ? ORDER BY id DESC LIMIT 10", (current_user.bio_id,)).fetchall()]
     conn.close()
     return render_template('docente.html', logs=logs)
 
@@ -407,4 +409,5 @@ def actualizar_password():
 
 if __name__ == '__main__':
     # Se recomienda desactivar el modo debug en producción
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print("--- SERVIDOR REINICIADO CORRECTAMENTE ---")
+    app.run(host='0.0.0.0', port=5000, debug=True)
