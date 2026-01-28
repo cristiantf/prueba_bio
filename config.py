@@ -14,7 +14,7 @@ USER_BIO = 'admin'
 PASS_BIO = 'istae1804A' # La contraseña de tu dispositivo
 
 # IP del microcontrolador NodeMCU que controla la puerta
-IP_NODE = '192.168.1.19'
+IP_NODE = 'puerta-tesis.local'
 TOKEN_NODE = 'istae1805A' # Debe coincidir con el token en el código de Arduino/NodeMCU
 
 # --- URLs de API (se construyen a partir de las IPs) ---
