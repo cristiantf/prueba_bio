@@ -142,7 +142,7 @@ def procesar_json(json_raw):
         if major_evt == 5:
             uid = evt.get('employeeNoString', 'Desconocido')
             fecha_raw = evt.get('time', '')
-            fecha = fecha_raw.split('+')[0].replace('T', ' ')
+            fecha = fecha_raw.split('+')[0].replace('T', ' ') if fecha_raw else "Ahora"
             
             # Sub-evento de verificación válida (ej. huella correcta)
             if sub_evt in [1, 38, 75]:
